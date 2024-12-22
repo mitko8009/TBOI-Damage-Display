@@ -1,6 +1,10 @@
 -- Register the mod
 DamageDisplay = RegisterMod("Damage Display", 1)
 local mod = DamageDisplay
+DamageDisplay.MOD_NAME = "Damage Display"
+DamageDisplay.VERSION = "1.0"
+DamageDisplay.AUTHOR = "mitko8009"
+DamageDisplay.SOCIAL = "@mitko8009_"
 
 -- Load the json library
 local json = require("json")
@@ -10,104 +14,74 @@ local json = require("json")
 --------------
 
 settings_DamageDisplay = {
-    -- HUD Settings
-    enableText = true,
-    fontalpha = 2.9,
-    coords = Vector(0, 0)
+	-- HUD Settings
+	enableText = true,
+	fontalpha = 0.4,
+	coords = Vector(10, 10), -- (!) The X is the horizontal position, (!) the Y is the vertical distance from the bottom of the screen
+	flipPosition = false,
+	format = 1
 }
 
 -----------------
 --- Main Code ---
 -----------------
 
+if ModConfigMenu then
+	require("scripts.mcm")
+end
+
 mod.font = Font()
 mod.font:Load("font/luaminioutlined.fnt")
 
+mod.totalDamageDealt = 0
+
+function mod:GetTotalDamageDealt()
+	return self.totalDamageDealt
+end
+
+function mod:SetTotalDamageDealt(value)
+	self.totalDamageDealt = value
+end
+
 function mod:onRender(shaderName)
-    local valueOutput = "Test Text"
-    
-    if settings_DamageDisplay.enableText then
-        mod:updatePosition()
-        local textCoords = settings_DamageDisplay.coords + Game().ScreenShakeOffset
-        valueOutput = tostring(textCoords.X) .. ", " .. tostring(textCoords.Y)
-        mod.font:DrawString(valueOutput, textCoords.X, textCoords.Y, KColor(1, 1, 1, 0.5), 0, true)
-    end
+	local valueOutput = tostring(math.ceil(mod:GetTotalDamageDealt()))
+	if settings_DamageDisplay.format == 1 then
+		valueOutput = "Total Damage Dealt: " .. valueOutput
+	elseif settings_DamageDisplay.format == 2 then
+		valueOutput = "Damage Dealt: " .. valueOutput
+	elseif settings_DamageDisplay.format == 3 then
+		valueOutput = valueOutput
+	end
+	
+	if settings_DamageDisplay.enableText then
+		local screenHeight = Isaac.GetScreenHeight()
+		local screenWidth = Isaac.GetScreenWidth()
+		local hudOffset = Options.HUDOffset
+		local hudOffsetVector = Vector(hudOffset * 10 * (settings_DamageDisplay.flipPosition and -1 or 1), hudOffset * 10 * -1)
+
+		local basePosition = Vector(settings_DamageDisplay.coords.X, screenHeight - settings_DamageDisplay.coords.Y - 10)
+		if settings_DamageDisplay.flipPosition then
+			basePosition = Vector(screenWidth - settings_DamageDisplay.coords.X - mod.font:GetStringWidth(valueOutput), screenHeight - settings_DamageDisplay.coords.Y - 10)
+		end
+
+		local textCoords = basePosition + Game().ScreenShakeOffset + hudOffsetVector
+		mod.font:DrawString(valueOutput, textCoords.X, textCoords.Y, KColor(1, 1, 1, settings_DamageDisplay.fontalpha), 0, true)
+	end
 end
 mod:AddCallback(ModCallbacks.MC_GET_SHADER_PARAMS, mod.onRender)
 mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.onRender)
 
-function mod:updatePosition() -- isaac-planetarium-chance | https://github.com/Sectimus/isaac-planetarium-chance?tab=readme-ov-file
-	local TrueCoopShift = false
-	local BombShift = false
-	local PoopShift = false
-	local RedHeartShift = false
-	local SoulHeartShift = false
-	local DualityShift = false
-
-	local ShiftCount = 0
-
-	settings_DamageDisplay.coords = Vector(0, 168)
-
-	for i = 0, Game():GetNumPlayers() - 1 do
-		local player = Isaac.GetPlayer(i)
-		local playerType = player:GetPlayerType()
-
-		if player:GetBabySkin() == -1 then
-			if i > 0 and player.Parent == nil and playerType == player:GetMainTwin():GetPlayerType() and not TrueCoopShift then
-				TrueCoopShift = true
-			end
-
-			if playerType ~= PlayerType.PLAYER_BLUEBABY_B and not BombShift then BombShift = true end
-		end
-		if playerType == PlayerType.PLAYER_BLUEBABY_B and not PoopShift then PoopShift = true end
-		if playerType == PlayerType.PLAYER_BETHANY_B and not RedHeartShift then RedHeartShift = true end
-		if playerType == PlayerType.PLAYER_BETHANY and not SoulHeartShift then SoulHeartShift = true end
-		if player:HasCollectible(CollectibleType.COLLECTIBLE_DUALITY) and not DualityShift then DualityShift = true end
+function mod:onDamage(entity, amount, flags, source, countdown)
+	if entity:IsEnemy() and entity:IsVulnerableEnemy() then
+		local damageToAdd = math.min(amount, entity.HitPoints)
+		mod:SetTotalDamageDealt(mod:GetTotalDamageDealt() + damageToAdd)
 	end
-
-	if BombShift then ShiftCount = ShiftCount + 1 end
-	if PoopShift then ShiftCount = ShiftCount + 1 end
-	if RedHeartShift then ShiftCount = ShiftCount + 1 end
-	if SoulHeartShift then ShiftCount = ShiftCount + 1 end
-	ShiftCount = ShiftCount - 1
-	if ShiftCount > 0 then settings_DamageDisplay.coords = settings_DamageDisplay.coords + Vector(0, (11 * ShiftCount) - 2) end
-
-	if Isaac.GetPlayer(0):GetPlayerType() == PlayerType.PLAYER_JACOB then
-		settings_DamageDisplay.coords = settings_DamageDisplay.coords + Vector(0, 30)
-	elseif TrueCoopShift then
-		settings_DamageDisplay.coords = settings_DamageDisplay.coords + Vector(0, 16)
-		if DualityShift then
-			settings_DamageDisplay.coords = settings_DamageDisplay.coords + Vector(0, -2) -- I hate this
-		end
-	end
-	if DualityShift then
-		settings_DamageDisplay.coords = settings_DamageDisplay.coords + Vector(0, -12)
-	end
-
-	if Game().Difficulty == Difficulty.DIFFICULTY_HARD or Game():IsGreedMode() or not CanRunUnlockAchievements() then
-		settings_DamageDisplay.coords = settings_DamageDisplay.coords + Vector(0, 16)
-	end
-
-	settings_DamageDisplay.coords = settings_DamageDisplay.coords + (Options.HUDOffset * Vector(20, 12))
 end
+mod:AddCallback(ModCallbacks.MC_ENTITY_TAKE_DMG, mod.onDamage)
 
-
-
--- function mod:DisplayText()
---     local basePos = Vector(80, 270) -- Base position on the bottom of the screen
-
---     -- Get the HUD offset
---     local hudOffset = Options.HUDOffset
---     local hudOffsetVector = Vector(0, hudOffset * 10)
-
---     -- Adjust the position with the HUD offset
---     local pos = basePos - hudOffsetVector
-
---     -- Create a text object
---     Isaac.RenderText("Damage: " .. tostring(damage), pos.X, pos.Y, 1, 1, 1, 1)
--- end
-
-
-
--- -- Add a callback to render the text every frame
--- mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.DisplayText)
+function mod:restart()
+	mod:SetTotalDamageDealt(0)
+end
+mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, mod.restart)
+mod:AddCallback(ModCallbacks.MC_POST_GAME_END, mod.restart)
+mod:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL, mod.restart)
